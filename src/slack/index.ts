@@ -70,6 +70,24 @@ export async function startSlackPlugin(
     identityMode: cfg.identityEmail === "0" ? "slack-id" : "email",
   };
 
+  const ACK_OVERRIDE_CACHE_MS = 60_000;
+  let ackOverrideCache: { names: string[] | null; fetchedAt: number } | undefined;
+  function ackEmojiOverride(): readonly string[] | null {
+    if (!ackOverrideCache || Date.now() - ackOverrideCache.fetchedAt >= ACK_OVERRIDE_CACHE_MS) {
+      const prev = ackOverrideCache;
+      ackOverrideCache = { names: prev?.names ?? null, fetchedAt: Date.now() };
+      core
+        .ackEmojiOverride()
+        .then((names) => {
+          ackOverrideCache = { names: names?.length ? names : null, fetchedAt: Date.now() };
+        })
+        .catch((err) => {
+          swallow("slack: ack-emoji override read", err);
+        });
+    }
+    return ackOverrideCache.names;
+  }
+
   const EXTERNAL_PARTICIPANTS_CACHE_MS = 30_000;
   let externalParticipantsCache: { on: boolean; fetchedAt: number } | undefined;
   async function externalParticipantsEnabled(): Promise<boolean> {
@@ -112,7 +130,7 @@ export async function startSlackPlugin(
   const threads = createThreadTracker();
 
   const bridge = createCoreBridge(core);
-  const ackEmoji = createAckEmojiPicker(core, cfg.ackEmoji?.length ? { candidatesOverride: cfg.ackEmoji } : {});
+  const ackEmoji = createAckEmojiPicker(core, { candidatesOverride: ackEmojiOverride });
   const directory = createDirectory({
     core,
     ids,
@@ -176,7 +194,7 @@ export async function startSlackPlugin(
     serializer,
     approvals,
     ackEmoji,
-    ...(cfg.ackEmoji?.length ? { ackEmojiCandidates: cfg.ackEmoji } : {}),
+    ackEmojiCandidates: ackEmojiOverride,
     ids,
     threads,
     deduper,
@@ -240,6 +258,7 @@ export async function startSlackPlugin(
     `[slack-plugin] connected as @${auth.user} (bot ${ids.botUserId}) in team ${auth.team} (${ids.ownTeamId}); in-process core`,
   );
   ackEmoji.refreshAckEmoji(app.client);
+  ackEmojiOverride();
 
   let deliveriesPollInFlight = false;
   let deliveriesPollAgain = false;

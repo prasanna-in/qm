@@ -20,7 +20,6 @@ export interface SlackPluginConfig {
   recentMessages?: number;
   userCacheTtlMs?: number;
   botIdentity?: { username?: string; icon_emoji?: string };
-  ackEmoji?: string[];
   devIntrospection?: { port: number };
 }
 
@@ -69,10 +68,6 @@ export function slackPluginConfigFromEnv(env: Record<string, string | undefined>
     ...(() => {
       const identity = botIdentityFromEnv(env);
       return Object.keys(identity).length ? { botIdentity: identity } : {};
-    })(),
-    ...(() => {
-      const ackEmoji = parseAckEmoji(env.SLACK_ACK_EMOJI);
-      return ackEmoji.length ? { ackEmoji } : {};
     })(),
     ...(env.DEV_INTROSPECTION === "1" ? { devIntrospection: { port: num(env.DEV_HEALTH_PORT) ?? 0 } } : {}),
   };

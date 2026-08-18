@@ -1,10 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { parseAckEmoji, slackPluginConfigFromEnv } from "../src/slack/config.ts";
+import { parseAckEmoji } from "../src/slack/config.ts";
 import { createAckEmojiPicker } from "../src/slack/ack-emoji.ts";
 import { CURATED_ACK_EMOJI, DEFAULT_ACK_REACTIONS, createAckPresenter } from "../src/slack/presenters.ts";
+import { createMemoryConfigStore } from "../src/resolution/config-store.ts";
 import type { SlackCoreClient } from "../src/api/slack-core-client.ts";
+
+const ORG = "org:test" as const;
 
 test("parseAckEmoji: normalizes colons/case, splits on commas and spaces, drops junk, dedupes", () => {
   assert.deepEqual(parseAckEmoji(":custom_thinking:, CUSTOM_OK  custom_ok\n:+1:"), [
@@ -18,25 +21,31 @@ test("parseAckEmoji: normalizes colons/case, splits on commas and spaces, drops 
   assert.deepEqual(parseAckEmoji(" , ::, !!"), []);
 });
 
-test("config: SLACK_ACK_EMOJI lands as ackEmoji; absent or empty leaves it unset", () => {
-  const base = { SLACK_BOT_TOKEN: "xoxb", SLACK_APP_TOKEN: "xapp" };
-  const withSet = slackPluginConfigFromEnv({ ...base, SLACK_ACK_EMOJI: ":custom_thinking:,custom_ok" });
-  assert.deepEqual(withSet?.ackEmoji, ["custom_thinking", "custom_ok"]);
-  assert.equal(slackPluginConfigFromEnv(base)?.ackEmoji, undefined);
-  assert.equal(slackPluginConfigFromEnv({ ...base, SLACK_ACK_EMOJI: " :!!: " })?.ackEmoji, undefined);
+test("config store: ack emoji set/get/clear roundtrip, durable read included", async () => {
+  const config = createMemoryConfigStore(ORG);
+  assert.equal(config.getAckEmoji(ORG), null);
+  assert.equal(await config.getAckEmojiDurable(ORG), null);
+  config.setAckEmoji(ORG, ["custom_thinking", "custom_ok"]);
+  assert.deepEqual(config.getAckEmoji(ORG), ["custom_thinking", "custom_ok"]);
+  assert.deepEqual(await config.getAckEmojiDurable(ORG), ["custom_thinking", "custom_ok"]);
+  config.setAckEmoji(ORG, null);
+  assert.equal(config.getAckEmoji(ORG), null);
+  assert.equal(await config.getAckEmojiDurable(ORG), null);
 });
 
-function pickerFixture(opts?: { candidatesOverride?: readonly string[] }) {
+function pickerFixture(opts?: { candidatesOverride?: () => readonly string[] | null }) {
   const core = {} as SlackCoreClient;
   const client = { emoji: { list: async () => ({ emoji: { custom_ok: "https://x/a.png" } }) } };
   return { picker: createAckEmojiPicker(core, opts), client };
 }
 
-test("ackPickCandidates: an org override fully replaces the stock candidate set", async () => {
-  const { picker, client } = pickerFixture({ candidatesOverride: ["custom_thinking", "custom_ok"] });
-  picker.refreshAckEmoji(client);
-  await Promise.resolve();
+test("ackPickCandidates: a live org override fully replaces the stock candidate set", async () => {
+  let names: string[] | null = ["custom_thinking", "custom_ok"];
+  const { picker, client } = pickerFixture({ candidatesOverride: () => names });
   assert.deepEqual(picker.ackPickCandidates(client), ["custom_thinking", "custom_ok"]);
+  names = null;
+  const candidates = picker.ackPickCandidates(client);
+  for (const name of [...CURATED_ACK_EMOJI, ...DEFAULT_ACK_REACTIONS]) assert.ok(candidates.includes(name));
 });
 
 test("ackPickCandidates: without an override the curated + default sets remain", () => {

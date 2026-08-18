@@ -32,7 +32,7 @@ function sample<T>(items: readonly T[], n: number): T[] {
 
 export function createAckEmojiPicker(
   core: SlackCoreClient,
-  opts: { candidatesOverride?: readonly string[] } = {},
+  opts: { candidatesOverride?: () => readonly string[] | null } = {},
 ): AckEmojiPicker {
   let ackEmojiCache: { custom: string[]; urls: Record<string, string>; at: number } | null = null;
   let ackEmojiInFlight: Promise<void> | null = null;
@@ -57,7 +57,8 @@ export function createAckEmojiPicker(
   }
 
   function ackPickCandidates(client: any): string[] {
-    if (opts.candidatesOverride?.length) return [...opts.candidatesOverride];
+    const override = opts.candidatesOverride?.();
+    if (override?.length) return [...override];
     refreshAckEmoji(client);
     return [...CURATED_ACK_EMOJI, ...DEFAULT_ACK_REACTIONS, ...sample(ackEmojiCache?.custom ?? [], CUSTOM_PICK_SAMPLE)];
   }
