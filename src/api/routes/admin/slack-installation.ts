@@ -80,7 +80,7 @@ export async function getSlackEmojiList(ctx: ApiCtx): Promise<void> {
   const actor = await authorizeAdmin(ctx, scope);
   if (!actor) return;
   const managed = await ctx.deps.slackInstallation?.get();
-  const botToken = managed?.botToken ?? process.env.SLACK_BOT_TOKEN ?? "";
+  const botToken = managed?.botToken ?? ctx.deps.slackEnvBotToken ?? "";
   if (!botToken) return sendJson(ctx.res, 404, { error: "not_configured" });
   const doFetch = ctx.deps.slackInstallationFetch ?? fetch;
   try {
