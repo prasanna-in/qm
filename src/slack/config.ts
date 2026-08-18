@@ -29,7 +29,7 @@ export function parseAckEmoji(raw: string | undefined): string[] {
   const seen = new Set<string>();
   for (const part of (raw ?? "").split(/[\s,]+/)) {
     const name = part.replace(/^:+/, "").replace(/:+$/, "").trim().toLowerCase();
-    if (!name || seen.has(name) || !/^[a-z0-9_+'-]+$/.test(name)) continue;
+    if (!name || seen.has(name) || !/^[a-z0-9_+-]+$/.test(name)) continue;
     seen.add(name);
     out.push(name);
   }

@@ -57,8 +57,8 @@ export function createAckEmojiPicker(
   }
 
   function ackPickCandidates(client: any): string[] {
-    refreshAckEmoji(client);
     if (opts.candidatesOverride?.length) return [...opts.candidatesOverride];
+    refreshAckEmoji(client);
     return [...CURATED_ACK_EMOJI, ...DEFAULT_ACK_REACTIONS, ...sample(ackEmojiCache?.custom ?? [], CUSTOM_PICK_SAMPLE)];
   }
 
