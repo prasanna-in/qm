@@ -11,6 +11,7 @@ import {
   shouldProcessMessage,
 } from "./lib.ts";
 import type { AckGate } from "./deferred-ack.ts";
+import type { AgentPane, AppContextChangedEvent, AssistantThreadEvent } from "./agent-pane.ts";
 import type { BotIdentity, Directory } from "./directory.ts";
 import type { Mirror } from "./mirror.ts";
 import type { SlackReactionEvent, TurnHandler } from "./turn-handler.ts";
@@ -26,6 +27,7 @@ export function registerSlackEvents(
     directory: Directory;
     ids: BotIdentity;
     deduper: ReturnType<typeof createDeduper>;
+    agentPane?: AgentPane;
     webUiPublicUrl?: string;
     ensureHeader?: (
       client: SurfaceHeaderClient,
@@ -36,7 +38,7 @@ export function registerSlackEvents(
     ) => void;
   },
 ): void {
-  const { handler, mirror, directory, ids, deduper } = deps;
+  const { handler, mirror, directory, ids, deduper, agentPane } = deps;
   const { dispatch, handleReactionEvent, botHasStakeInThread } = handler;
   const { mirrorMessageEvent, pushSurfaceEvents } = mirror;
   const { syncForUnseenGroup, forceDirectorySync } = directory;
@@ -138,23 +140,42 @@ export function registerSlackEvents(
         channel: m.channel,
         ts: m.ts,
       });
-      await dispatch(
-        key,
-        {
-          kind: "dm",
-          channel: m.channel,
-          userId: identity.userId,
-          ...(identity.actor ? { actor: identity.actor } : {}),
-          ...(m.bot_profile?.name || m.username ? { authorName: String(m.bot_profile?.name || m.username) } : {}),
-          rawText: m.text ?? "",
-          files: (m.files as SlackFile[]) ?? [],
-          threadTs: m.thread_ts,
-          ts: m.ts,
-          ...(m.bot_id || m.subtype === "bot_message" ? { botAuthored: true } : {}),
-          ackGate,
-        },
-        client,
-      );
+      // Agent split-pane messages are ordinary DM thread messages; layer on the
+      // native affordances (status, title, viewing context) and dispatch as usual.
+      const inAgentThread = Boolean(agentPane?.isAgentThread(m.channel, m.thread_ts));
+      const contextNote = agentPane?.contextNote({
+        channel: m.channel,
+        threadTs: m.thread_ts,
+        userId: m.user,
+        ...(m.app_context ? { messageContext: m.app_context } : {}),
+      });
+      if (inAgentThread) {
+        void agentPane!.setStatus(client, m.channel, m.thread_ts, "thinking…");
+        void agentPane!.maybeSetTitle(client, m.channel, m.thread_ts, m.text ?? "");
+      }
+      try {
+        await dispatch(
+          key,
+          {
+            kind: "dm",
+            channel: m.channel,
+            userId: identity.userId,
+            ...(identity.actor ? { actor: identity.actor } : {}),
+            ...(m.bot_profile?.name || m.username ? { authorName: String(m.bot_profile?.name || m.username) } : {}),
+            rawText: m.text ?? "",
+            files: (m.files as SlackFile[]) ?? [],
+            threadTs: m.thread_ts,
+            ts: m.ts,
+            ...(contextNote ? { contextNote } : {}),
+            ...(m.bot_id || m.subtype === "bot_message" ? { botAuthored: true } : {}),
+            ackGate,
+          },
+          client,
+        );
+      } finally {
+        // A posted reply clears the indicator on its own; this covers silent turns.
+        if (inAgentThread) void agentPane!.setStatus(client, m.channel, m.thread_ts, "");
+      }
       return;
     }
 
@@ -251,6 +272,20 @@ export function registerSlackEvents(
     const principalId = e.user ? (await directory.classifyUserCached(client, e.user)).actor.externalId : undefined;
     await forceDirectorySync(client, e.channel, principalId);
   });
+
+  if (agentPane) {
+    // Slack Agents (agent_view) events. Absent on installs whose manifest predates
+    // the feature — these handlers simply never fire there.
+    app.event("assistant_thread_started", async ({ event }: any) => {
+      agentPane.noteThreadStarted(event as AssistantThreadEvent);
+    });
+    app.event("assistant_thread_context_changed", async ({ event }: any) => {
+      agentPane.noteThreadContextChanged(event as AssistantThreadEvent);
+    });
+    app.event("app_context_changed", async ({ event }: any) => {
+      agentPane.noteAppContextChanged(event as AppContextChangedEvent);
+    });
+  }
 
   app.event("reaction_added", async ({ event, body, client }: any) => {
     await handleReactionEvent(event as SlackReactionEvent, body as any, client, true);

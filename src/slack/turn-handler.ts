@@ -73,6 +73,8 @@ interface Incoming {
   files: SlackFile[];
   threadTs?: string;
   ts: string;
+  /** Agent split-pane only: what the user currently has open in Slack. */
+  contextNote?: string;
   unprompted?: boolean;
   botAuthored?: boolean;
   synthetic?: boolean;
@@ -276,7 +278,11 @@ export function createTurnHandler(deps: {
       inc.kind === "dm"
         ? {
             location: "a direct message with the user",
-            details: { channel: inc.channel, ...(inc.threadTs ? { thread_ts: inc.threadTs } : {}) },
+            details: {
+              channel: inc.channel,
+              ...(inc.threadTs ? { thread_ts: inc.threadTs } : {}),
+              ...(inc.contextNote ? { currently_viewing: inc.contextNote } : {}),
+            },
             instructions: slackSurfaceInstructions(inc.kind),
             reactionGuidance: REACTION_DETECT_GUIDANCE,
             ...(ids.botHandle ? { botHandle: ids.botHandle } : {}),

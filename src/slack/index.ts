@@ -13,6 +13,7 @@ import { createConversationSerializer } from "./conversation-view.ts";
 import { createApprovals } from "./approvals.ts";
 import { createTurnHandler } from "./turn-handler.ts";
 import { registerSlackEvents } from "./events.ts";
+import { createAgentPane } from "./agent-pane.ts";
 import { createSurfaceContextFulfiller } from "./surface-context.ts";
 import { createDeliveryPoller } from "./deliveries.ts";
 import { createDeferredAckReceiver } from "./deferred-ack.ts";
@@ -192,6 +193,7 @@ export async function startSlackPlugin(
     directory,
     ids,
     deduper,
+    agentPane: createAgentPane(),
     ...(cfg.webUiPublicUrl ? { webUiPublicUrl: cfg.webUiPublicUrl } : {}),
     ensureHeader,
   });
