@@ -112,7 +112,7 @@ export async function startSlackPlugin(
   const threads = createThreadTracker();
 
   const bridge = createCoreBridge(core);
-  const ackEmoji = createAckEmojiPicker(core);
+  const ackEmoji = createAckEmojiPicker(core, cfg.ackEmoji?.length ? { candidatesOverride: cfg.ackEmoji } : {});
   const directory = createDirectory({
     core,
     ids,
@@ -176,6 +176,7 @@ export async function startSlackPlugin(
     serializer,
     approvals,
     ackEmoji,
+    ...(cfg.ackEmoji?.length ? { ackEmojiCandidates: cfg.ackEmoji } : {}),
     ids,
     threads,
     deduper,
