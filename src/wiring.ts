@@ -107,6 +107,7 @@ import { createAwsSandbox, type StoredMicrovm } from "./sandbox/aws-sandbox.ts";
 import { createLocalSandbox } from "./sandbox/local-sandbox.ts";
 import { createSpritesSandbox } from "./sandbox/sprites-sandbox.ts";
 import { createSmolmachinesSandbox } from "./sandbox/smolmachines-sandbox.ts";
+import { createAegisSandbox } from "./sandbox/aegis-sandbox.ts";
 import {
   createSandboxRouter,
   ROUTE_CACHE_TTL_MS,
@@ -623,11 +624,26 @@ export function buildApp(
       onError: sandboxOnError,
     });
   };
+  // Aegis backend: each computer is an Aegis microVM (libkrun + OCI) with wire-DLP +
+  // credential custody. Config via env (AEGIS_BIN / AEGIS_COMPUTER_POLICY / AEGIS_CWD) —
+  // additive, so it doesn't touch the typed Config surface the other backends use.
+  const buildAegis = (): Sandbox =>
+    createAegisSandbox(workspace, {
+      aegisBin: process.env.AEGIS_BIN ?? "aegis-core",
+      computerPolicy: process.env.AEGIS_COMPUTER_POLICY ?? "",
+      cwd: process.env.AEGIS_CWD ?? process.cwd(),
+      // The OCI base image's / is owned by the host extractor uid and guest-root lacks
+      // CAP_DAC_OVERRIDE, so a scratch workspace must live under world-writable /tmp.
+      // (Proper fix — idmap the OS-layer mount host_euid→0 — is a tracked follow-up.)
+      workspaceDir: process.env.AEGIS_WORKSPACE ?? "/tmp/aegis-workspace",
+      onError: sandboxOnError,
+    });
   const buildBackend: Record<Config["sandboxBackend"], () => Sandbox> = {
     local: buildLocal,
     sprites: buildSprites,
     smolmachines: buildSmolmachines,
     aws: buildAws,
+    aegis: buildAegis,
   };
   const sandboxBackends: Partial<Record<SandboxBackendName, Sandbox>> = {
     [config.sandboxBackend]: buildBackend[config.sandboxBackend](),

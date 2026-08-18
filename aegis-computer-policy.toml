@@ -1,0 +1,16 @@
+[vm]
+vcpus  = 2
+ram_mb = 512
+
+[rootfs]
+path = "aegis-rootfs"
+oci_image = "docker.io/library/alpine:3.20"
+
+[invocation]
+mode = "computer"
+
+[base]
+allow_hosts = []
+allow_cidrs = []
+
+[trust]

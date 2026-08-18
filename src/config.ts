@@ -35,8 +35,8 @@ export interface Config {
   databaseCaCertFile?: string;
   harness: "mock" | "pi" | "opencode" | "codex" | "claude";
   securityPosture: SecurityPosture;
-  sandboxBackend: "aws" | "local" | "sprites" | "smolmachines";
-  sandboxSecondaryBackend?: "aws" | "local" | "sprites" | "smolmachines";
+  sandboxBackend: "aws" | "local" | "sprites" | "smolmachines" | "aegis";
+  sandboxSecondaryBackend?: "aws" | "local" | "sprites" | "smolmachines" | "aegis";
   deployProvider: "docker" | "aws";
   egressServiceHosts?: string[];
   brandingDefault?: OrgBranding;
@@ -510,9 +510,9 @@ function harnessEnvStrict(value: string | undefined): Config["harness"] {
 function sandboxBackendEnvStrict(value: string | undefined, name = "SANDBOX_BACKEND"): Config["sandboxBackend"] {
   if (value === undefined || value.trim() === "") return "local";
   const backend = value.trim();
-  if (backend === "aws" || backend === "local" || backend === "sprites" || backend === "smolmachines") return backend;
+  if (backend === "aws" || backend === "local" || backend === "sprites" || backend === "smolmachines" || backend === "aegis") return backend;
   throw new Error(
-    `${name}=${JSON.stringify(value)} is not recognized — use aws, local, sprites, or smolmachines, or unset it.`,
+    `${name}=${JSON.stringify(value)} is not recognized — use aws, local, sprites, smolmachines, or aegis, or unset it.`,
   );
 }
 
