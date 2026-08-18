@@ -130,7 +130,7 @@ export function createAgentPane(): AgentPane {
       const t = event.assistant_thread;
       const k = key(t?.channel_id, t?.thread_ts);
       if (!k) return;
-      remember(k, { ...(t?.context ? { context: t.context } : {}) });
+      remember(k, t?.context ? { context: t.context } : {});
     },
     noteThreadContextChanged(event) {
       const t = event.assistant_thread;
