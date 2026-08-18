@@ -7,7 +7,11 @@ import { CURATED_ACK_EMOJI, DEFAULT_ACK_REACTIONS, createAckPresenter } from "..
 import type { SlackCoreClient } from "../src/api/slack-core-client.ts";
 
 test("parseAckEmoji: normalizes colons/case, splits on commas and spaces, drops junk, dedupes", () => {
-  assert.deepEqual(parseAckEmoji(":custom_thinking:, CUSTOM_OK  custom_ok\n:+1:"), ["custom_thinking", "custom_ok", "+1"]);
+  assert.deepEqual(parseAckEmoji(":custom_thinking:, CUSTOM_OK  custom_ok\n:+1:"), [
+    "custom_thinking",
+    "custom_ok",
+    "+1",
+  ]);
   assert.deepEqual(parseAckEmoji("bad name!, :also bad:"), ["bad", "also"]);
   assert.deepEqual(parseAckEmoji(""), []);
   assert.deepEqual(parseAckEmoji(undefined), []);
