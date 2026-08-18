@@ -1,21 +1,3 @@
-/**
- * Slack "Agents & AI Apps" split-pane support (the current-generation agent_view
- * experience — not the deprecated assistant tabs).
- *
- * Agent-pane conversations arrive as ordinary message.im events threaded under an
- * assistant thread, so they flow through the normal DM turn machinery untouched.
- * This module only layers on the native affordances: a working status indicator,
- * thread titles, and awareness of what the user is currently viewing.
- *
- * Everything here is feature-detected: on an install whose manifest predates the
- * agent_view feature (no assistant:write scope, no assistant_* events) the events
- * never fire and the first failed API call disables the pane calls for the process.
- * Nothing ever hard-fails a turn.
- *
- * Message streaming into the pane is intentionally out of scope; setStatus below is
- * the seam where a chat.startStream/appendStream presenter would slot in.
- */
-
 const MAX_TRACKED = 500;
 const MAX_TITLE_LENGTH = 50;
 
@@ -59,18 +41,13 @@ export interface AgentPane {
   noteThreadContextChanged(event: AssistantThreadEvent): void;
   noteAppContextChanged(event: AppContextChangedEvent): void;
   isAgentThread(channel: string | undefined, threadTs: string | undefined): boolean;
-  /** What the user is looking at right now, as a note for the model. Precedence:
-   *  the message's own app_context, then the thread's saved context, then the
-   *  user's last app_context_changed. */
   contextNote(args: {
     channel?: string;
     threadTs?: string;
     userId?: string;
     messageContext?: { entities?: AgentContextEntity[] };
   }): string | undefined;
-  /** Fire-and-forget; safe on any install. An empty status clears the indicator. */
   setStatus(client: AgentPaneClient, channel: string, threadTs: string, status: string): Promise<void>;
-  /** Titles the thread once, from its first user message. */
   maybeSetTitle(client: AgentPaneClient, channel: string, threadTs: string, text: string): Promise<void>;
   enabled(): boolean;
 }
@@ -97,13 +74,12 @@ export function describeContextEntities(entities: AgentContextEntity[] | undefin
 
 function describeThreadContext(ctx: AgentThreadContext | undefined): string | undefined {
   if (!ctx?.channel_id) return undefined;
-  return `The user currently has <#${ctx.channel_id}> open in Slack.`;
+  const target = ctx.thread_ts ? `a thread (ts ${ctx.thread_ts}) in <#${ctx.channel_id}>` : `<#${ctx.channel_id}>`;
+  return `The user currently has ${target} open in Slack.`;
 }
 
 export function createAgentPane(): AgentPane {
-  // Threads the pane has seen assistant_thread_started for, with their last-known context.
   const threads = new Map<string, { context?: AgentThreadContext; titled?: boolean }>();
-  // Latest app_context_changed entities per user.
   const userContexts = new Map<string, AgentContextEntity[]>();
   let apiDisabled = false;
   let warned = false;
@@ -126,10 +102,11 @@ export function createAgentPane(): AgentPane {
       msg,
     );
 
-  const call = async (label: string, fn: (() => Promise<unknown>) | undefined): Promise<void> => {
-    if (apiDisabled || !fn) return;
+  const call = async (label: string, fn: (() => Promise<unknown>) | undefined): Promise<boolean> => {
+    if (apiDisabled || !fn) return false;
     try {
       await fn();
+      return true;
     } catch (err) {
       const msg = (err as Error)?.message ?? String(err);
       if (featureUnavailable(msg)) {
@@ -141,9 +118,10 @@ export function createAgentPane(): AgentPane {
               "or the workspace plan doesn't include AI apps. Conversations keep working without status/titles.",
           );
         }
-        return;
+        return false;
       }
       console.error(`[slack-plugin] agent-pane ${label} failed: ${msg}`);
+      return false;
     }
   };
 
@@ -196,10 +174,11 @@ export function createAgentPane(): AgentPane {
       if (!title) return;
       remember(k, { titled: true });
       const setTitle = client.assistant?.threads?.setTitle;
-      await call(
+      const ok = await call(
         "setTitle",
         setTitle ? () => setTitle({ channel_id: channel, thread_ts: threadTs, title }) : undefined,
       );
+      if (!ok && !apiDisabled && threads.has(k)) remember(k, { titled: false });
     },
     enabled() {
       return !apiDisabled;

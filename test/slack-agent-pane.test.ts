@@ -82,7 +82,6 @@ test("agent thread messages get a working status, a title, and still dispatch as
   assert.equal(titles.length, 1);
   assert.deepEqual(titles[0]!.args, { channel_id: "D111", thread_ts: "100.1", title: "summarize this please" });
 
-  // A second message in the same thread does not re-title.
   await app.im({ channel: "D111", user: "U1", text: "and shorter", ts: "100.3", thread_ts: "100.1" }, client);
   assert.equal(calls.filter((c) => c.method === "setTitle").length, 1);
 });
@@ -136,7 +135,6 @@ test("assistant_thread_context_changed and app_context_changed update what the p
   await app.im({ channel: "D111", user: "U1", text: "hi", ts: "100.2", thread_ts: "100.1" });
   assert.match(dispatched[0].contextNote, /<#C43>/);
 
-  // With no thread context, fall back to the user's latest app_context_changed.
   await app.fire("assistant_thread_context_changed", { assistant_thread: { ...THREAD, context: {} } });
   await app.fire("app_context_changed", {
     user: "U1",
@@ -144,6 +142,84 @@ test("assistant_thread_context_changed and app_context_changed update what the p
   });
   await app.im({ channel: "D111", user: "U1", text: "hi again", ts: "100.3", thread_ts: "100.1" });
   assert.match(dispatched[1].contextNote, /<#C77>/);
+});
+
+test("a saved thread context that names a thread surfaces its ts in the note", async () => {
+  const pane = createAgentPane();
+  const { app, dispatched } = register(pane);
+  await app.fire("assistant_thread_started", {
+    assistant_thread: { ...THREAD, context: { channel_id: "C42", thread_ts: "55.5" } },
+  });
+  await app.im({ channel: "D111", user: "U1", text: "hi", ts: "100.2", thread_ts: "100.1" });
+  assert.match(dispatched[0].contextNote, /a thread \(ts 55\.5\) in <#C42>/);
+});
+
+test("a transient setTitle failure is retried on the next message", async () => {
+  const pane = createAgentPane();
+  const { app } = register(pane);
+  const calls: any[] = [];
+  let fail = true;
+  const client = {
+    assistant: {
+      threads: {
+        setStatus: async () => {},
+        setTitle: async (args: any) => {
+          calls.push(args);
+          if (fail) {
+            fail = false;
+            throw new Error("rate_limited");
+          }
+        },
+      },
+    },
+  };
+  await app.fire("assistant_thread_started", { assistant_thread: THREAD });
+  await app.im({ channel: "D111", user: "U1", text: "first", ts: "100.2", thread_ts: "100.1" }, client);
+  await app.im({ channel: "D111", user: "U1", text: "second", ts: "100.3", thread_ts: "100.1" }, client);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].title, "second");
+  assert.equal(pane.enabled(), true);
+});
+
+test("overlapping turns in one thread keep the status until the last one settles", async () => {
+  const pane = createAgentPane();
+  const app = fakeApp();
+  const { client, calls } = fakeClient();
+  const gates: Array<() => void> = [];
+  registerSlackEvents(app.app, {
+    handler: {
+      dispatch: async () => new Promise<void>((resolve) => gates.push(resolve)),
+      handleReactionEvent: async () => {},
+      botHasStakeInThread: async () => false,
+    } as unknown as TurnHandler,
+    mirror: { mirrorMessageEvent: async () => {}, pushSurfaceEvents: async () => {} } as any,
+    directory: { syncForUnseenGroup: () => {}, forceDirectorySync: async () => {} } as any,
+    ids: { botUserId: "UBOT", ownBotId: "BBOT" } as any,
+    deduper: createDeduper(),
+    agentPane: pane,
+  });
+  await app.fire("assistant_thread_started", { assistant_thread: THREAD });
+  const first = app.im({ channel: "D111", user: "U1", text: "one", ts: "100.2", thread_ts: "100.1" }, client);
+  const second = app.im({ channel: "D111", user: "U1", text: "two", ts: "100.3", thread_ts: "100.1" }, client);
+  while (gates.length < 2) await new Promise((resolve) => setTimeout(resolve, 1));
+  gates[0]!();
+  await first;
+  assert.equal(calls.filter((c) => c.method === "setStatus" && c.args.status === "").length, 0);
+  gates[1]!();
+  await second;
+  assert.equal(calls.filter((c) => c.method === "setStatus" && c.args.status === "").length, 1);
+});
+
+test("pane context saved from app_context_changed does not leak into plain DMs", async () => {
+  const pane = createAgentPane();
+  const { app, dispatched } = register(pane);
+  await app.fire("app_context_changed", {
+    user: "U1",
+    context: { entities: [{ type: "slack#/types/channel_id", value: "C77" }] },
+  });
+  await app.im({ channel: "D111", user: "U1", text: "hello", ts: "1.1" });
+  assert.equal(dispatched.length, 1);
+  assert.equal(dispatched[0].contextNote, undefined);
 });
 
 test("plain DM messages outside an agent thread carry no pane behavior", async () => {

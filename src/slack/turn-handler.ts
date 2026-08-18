@@ -73,7 +73,6 @@ interface Incoming {
   files: SlackFile[];
   threadTs?: string;
   ts: string;
-  /** Agent split-pane only: what the user currently has open in Slack. */
   contextNote?: string;
   unprompted?: boolean;
   botAuthored?: boolean;

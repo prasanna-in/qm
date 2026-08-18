@@ -39,6 +39,7 @@ export function registerSlackEvents(
   },
 ): void {
   const { handler, mirror, directory, ids, deduper, agentPane } = deps;
+  const activeAgentTurns = new Map<string, number>();
   const { dispatch, handleReactionEvent, botHasStakeInThread } = handler;
   const { mirrorMessageEvent, pushSurfaceEvents } = mirror;
   const { syncForUnseenGroup, forceDirectorySync } = directory;
@@ -140,16 +141,19 @@ export function registerSlackEvents(
         channel: m.channel,
         ts: m.ts,
       });
-      // Agent split-pane messages are ordinary DM thread messages; layer on the
-      // native affordances (status, title, viewing context) and dispatch as usual.
       const inAgentThread = Boolean(agentPane?.isAgentThread(m.channel, m.thread_ts));
-      const contextNote = agentPane?.contextNote({
-        channel: m.channel,
-        threadTs: m.thread_ts,
-        userId: m.user,
-        ...(m.app_context ? { messageContext: m.app_context } : {}),
-      });
+      const contextNote =
+        inAgentThread || m.app_context
+          ? agentPane?.contextNote({
+              channel: m.channel,
+              threadTs: m.thread_ts,
+              userId: m.user,
+              ...(m.app_context ? { messageContext: m.app_context } : {}),
+            })
+          : undefined;
+      const turnKey = `${m.channel}:${m.thread_ts}`;
       if (inAgentThread) {
+        activeAgentTurns.set(turnKey, (activeAgentTurns.get(turnKey) ?? 0) + 1);
         void agentPane!.setStatus(client, m.channel, m.thread_ts, "thinking…");
         void agentPane!.maybeSetTitle(client, m.channel, m.thread_ts, m.text ?? "");
       }
@@ -173,8 +177,14 @@ export function registerSlackEvents(
           client,
         );
       } finally {
-        // A posted reply clears the indicator on its own; this covers silent turns.
-        if (inAgentThread) void agentPane!.setStatus(client, m.channel, m.thread_ts, "");
+        if (inAgentThread) {
+          const left = (activeAgentTurns.get(turnKey) ?? 1) - 1;
+          if (left > 0) activeAgentTurns.set(turnKey, left);
+          else {
+            activeAgentTurns.delete(turnKey);
+            void agentPane!.setStatus(client, m.channel, m.thread_ts, "");
+          }
+        }
       }
       return;
     }
@@ -274,8 +284,6 @@ export function registerSlackEvents(
   });
 
   if (agentPane) {
-    // Slack Agents (agent_view) events. Absent on installs whose manifest predates
-    // the feature — these handlers simply never fire there.
     app.event("assistant_thread_started", async ({ event }: any) => {
       agentPane.noteThreadStarted(event as AssistantThreadEvent);
     });
