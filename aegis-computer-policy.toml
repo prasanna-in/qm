@@ -8,9 +8,45 @@ oci_image = "docker.io/library/alpine:3.20"
 
 [invocation]
 mode = "computer"
+force_nonroot = true
 
+# GitHub open so the agent can clone / pull / push and hit the REST API. Everything
+# else stays deny-all. These are the same hosts as the "github" egress bundle.
 [base]
-allow_hosts = []
+allow_hosts = [
+  "github.com:443",
+  "api.github.com:443",
+  "codeload.github.com:443",
+  "objects.githubusercontent.com:443",
+  "raw.githubusercontent.com:443",
+]
 allow_cidrs = []
+
+# Real GitHub token lives on the host (qm/.env → aegis-core process env). Swapped in
+# at the MITM: Basic (x-access-token:TOKEN) for git-over-HTTPS, Bearer for
+# api.github.com. It never enters the guest.
+[git]
+secret = "GITHUB_TOKEN"
+
+# Inline DLP on the GitHub REST channel — the GitLost exfil path (agent posts a
+# secret/PII into an issue/comment/gist/PR). A match returns 403 with
+# X-Aegis-Block-Reason before the body reaches GitHub.
+# NOTE: git-over-HTTPS *push content* (github.com:443) is credential-injected but NOT
+# body-inspected — this blocks the API-exfil vector, not push scanning.
+[dlp]
+[[dlp.rule]]
+on = "github.post"
+match = "secret"
+action = "block"
+
+[[dlp.rule]]
+on = "github.post"
+match = "credit_card"
+action = "block"
+
+[[dlp.rule]]
+on = "github.post"
+match = "ssn"
+action = "block"
 
 [trust]
