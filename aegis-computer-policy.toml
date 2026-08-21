@@ -4,7 +4,9 @@ ram_mb = 512
 
 [rootfs]
 path = "aegis-rootfs"
-oci_image = "docker.io/library/alpine:3.20"
+# Ships git + curl so the agent can clone/pull/push and the DLP red-team probes run.
+# (alpine:3.20 had neither.) Swap for qm-sandbox-base once it's pullable here.
+oci_image = "docker.io/library/buildpack-deps:bookworm-scm"
 
 [invocation]
 mode = "computer"
